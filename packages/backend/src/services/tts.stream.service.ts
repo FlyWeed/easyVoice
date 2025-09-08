@@ -209,7 +209,8 @@ async function buildSegment(params: TTSParams, task: Task, dir: string = '') {
     headers: {
       'content-type': 'application/octet-stream',
       'x-generate-tts-type': 'stream',
-      'Access-Control-Expose-Headers-generate-tts-id': task.id,
+      'x-generate-tts-id': task.id,
+      'Access-Control-Expose-Headers': 'x-generate-tts-type, x-generate-tts-id',
     },
     fileName: segment.id,
     onError: (err) => `Custom error: ${err.message}`,
@@ -237,16 +238,28 @@ export async function handleSrt(audioPath: string, stream = true) {
     await generateSrt(tempJsonPath, audioPath.replace('.mp3', '.srt'))
     return
   }
-  const { dir, base } = path.parse(audioPath)
+  const { base } = path.parse(audioPath)
   const tmpDir = audioPath + '_tmp'
   await ensureDir(tmpDir)
 
-  const fileList = (await readdir(tmpDir))
-    .filter((file) => file.includes(base) && file.includes('.json'))
-    .sort((a, b) => Number(a.split('.json.')?.[1] || 0) - Number(b.split('.json.')?.[1] || 0))
-    .map((file) => path.join(tmpDir, file))
+  const collectFiles = async () =>
+    (await readdir(tmpDir))
+      .filter((file) => file.includes(base) && file.includes('.json'))
+      .sort(
+        (a, b) =>
+          Number(a.split('.json.')?.[1] || 0) - Number(b.split('.json.')?.[1] || 0),
+      )
+      .map((file) => path.join(tmpDir, file))
+
+  let fileList: string[] = []
+  let retries = 5
+  while (retries-- > 0 && fileList.length === 0) {
+    fileList = await collectFiles()
+    if (fileList.length) break
+    await asyncSleep(200)
+  }
   if (!fileList.length) return
-  concatDirSrt({ jsonFiles: fileList, inputDir: tmpDir, outputFile: audioPath })
+  await concatDirSrt({ jsonFiles: fileList, inputDir: tmpDir, outputFile: audioPath })
 }
 async function buildSegmentList(segments: BuildSegment[], task: Task): Promise<void> {
   const { res, segment } = task.context as Required<NonNullable<Task['context']>>
@@ -266,7 +279,8 @@ async function buildSegmentList(segments: BuildSegment[], task: Task): Promise<v
     headers: {
       'content-type': 'application/octet-stream',
       'x-generate-tts-type': 'stream',
-      'Access-Control-Expose-Headers-generate-tts-id': task.id,
+      'x-generate-tts-id': task.id,
+      'Access-Control-Expose-Headers': 'x-generate-tts-type, x-generate-tts-id',
     },
     onError: (err) => `Custom error: ${err.message}`,
     fileName: segment.id,

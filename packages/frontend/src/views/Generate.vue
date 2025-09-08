@@ -255,6 +255,7 @@ import StreamButton from '@/components/StreamButton.vue'
 import {
   generateTTS,
   getVoiceList,
+  getTask,
   type Voice,
   type GenerateResponse,
   createTaskStream,
@@ -602,12 +603,13 @@ const generateAudioTask = async () => {
 
   try {
     const params = buildParams(inputText)
-    const stream = await createTaskStream(params)
+    const { stream, data, taskId } = await createTaskStream(params)
+    if (data?.code && data.data) {
+      updateAudioList(data.data)
+      return
+    }
     if (!(stream instanceof ReadableStream)) {
-      if (stream.code && stream.data) {
-        updateAudioList(stream.data)
-        return
-      }
+      throw new Error('Stream not returned')
     }
     console.log('typeof stream:', typeof stream)
     console.log('stream instanceof ReadableStream :', stream instanceof ReadableStream)
@@ -628,7 +630,7 @@ const generateAudioTask = async () => {
       }
       generationStore.updateProgress(progress.increase())
     }
-    const onFinished = (newAudioUrl: string, blobs: Blob[]) => {
+    const onFinished = async (newAudioUrl: string, blobs: Blob[]) => {
       audioPlayerRef.value!.audioRef!.src = newAudioUrl
       const name = `${params.voice}-${params.text.slice(0, 10)}-${Date.now()}`
       generating.value = false
@@ -639,8 +641,28 @@ const generateAudioTask = async () => {
         name,
         blobs,
       }
+      const index = generationStore.audioList.length
       generationStore.updateProgress(100)
       updateAudioList(result)
+      if (taskId) {
+        let attempts = 5
+        while (attempts-- > 0) {
+          try {
+            const taskRes = await getTask({ id: taskId })
+            const taskResult = taskRes.data?.result
+            if (taskResult?.srt) {
+              const newList = [...generationStore.audioList]
+              newList[index].srt = taskResult.srt
+              newList[index].file = taskResult.file || newList[index].file
+              generationStore.updateAudioList(newList)
+              break
+            }
+          } catch (err) {
+            console.error('getTask error', err)
+          }
+          await asyncSleep(1000)
+        }
+      }
       audioPlayerRef.value!.audioRef?.addEventListener(
         'loadedmetadata',
         () => {

@@ -91,7 +91,7 @@ export const createTask = async (data: TaskRequest) => {
   return response.data
 }
 
-export const createTaskStream = async (data: TaskRequest) => {
+export const createTaskStream = async (data: GenerateRequest) => {
   const response = await api.post<ReadableStream | ResponseWrapper<GenerateResponse>>(
     `/createStream`,
     data,
@@ -99,10 +99,11 @@ export const createTaskStream = async (data: TaskRequest) => {
       responseType: 'stream',
       adapter: 'fetch',
       timeout: 0,
-    }
+    },
   )
   const ttsType = response.headers['x-generate-tts-type']
   const contentType = response.headers['content-type']
+  const taskId = response.headers['x-generate-tts-id']
   if (
     response.status !== 200 ||
     ttsType === 'application/json' ||
@@ -110,9 +111,9 @@ export const createTaskStream = async (data: TaskRequest) => {
   ) {
     const text = await new Response(response.data as any).text()
     const responseData = JSON.parse(text)
-    return responseData
+    return { data: responseData, taskId }
   }
-  return response.data as ReadableStream
+  return { stream: response.data as ReadableStream, taskId }
 }
 
 export const downloadFile = (file: string) => `${api.defaults.baseURL}/download/${file}`
